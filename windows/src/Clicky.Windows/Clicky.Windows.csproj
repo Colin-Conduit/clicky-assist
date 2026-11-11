@@ -13,6 +13,9 @@
     <RootNamespace>Clicky.Windows</RootNamespace>
     <AssemblyName>Clicky.Windows</AssemblyName>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- WFO0003 asks WinForms apps to move DPI settings out of the manifest. This is a WPF
+         app that only borrows NotifyIcon, and WPF reads PerMonitorV2 from the manifest. -->
+    <NoWarn>$(NoWarn);WFO0003</NoWarn>
   </PropertyGroup>
 
   <!-- WinForms implicit usings collide with WPF type names (Application, Point, Color).
