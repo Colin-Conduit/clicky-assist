@@ -106,4 +106,5 @@ The only third-party package is NAudio (WASAPI capture and MP3 playback). Tests 
 - **Not ported.** Usage analytics, the onboarding email form, and the feedback button point at the upstream author's accounts and are left out.
 - **Topmost order.** The overlay is a topmost window, so the taskbar, the Start menu, and full-screen exclusive games can draw above it.
 - **No single-instance guard.** Starting Clicky twice installs two hooks and two overlays.
+- **No refusal fallback.** Claude Sonnet 5.5 and Opus 5.5 support a server-side fallback when a safety classifier declines a request, but it needs an `anthropic-beta` header that the Worker does not forward. A declined request is logged with its stop reason, and Clicky speaks only whatever text arrived before it (often none).
 - **Microphone status.** The panel reads the Windows privacy toggles from the registry as a best-effort hint; the error from actually opening the microphone is the authoritative signal.

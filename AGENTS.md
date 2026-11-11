@@ -90,7 +90,7 @@ Paths are relative to `windows/src/` unless they start with `windows/`.
 | `Clicky.Core/Configuration/ClickyWorkerConfiguration.cs` | ~141 | Worker URL resolution: `CLICKY_WORKER_URL`, then `appsettings.json`, then `http://localhost:8787`. Route URLs for `/chat`, `/tts`, `/transcribe-token`. |
 | `Clicky.Core/Claude/ClaudeModelIdentifiers.cs` | ~44 | The only place model ids live: `claude-sonnet-5-5` (default) and `claude-opus-5-5`. |
 | `Clicky.Core/Claude/ClaudeServerSentEventParser.cs` | ~220 | Byte-level incremental SSE parser for Anthropic streams (split chunks, split UTF-8, CRLF, error events). |
-| `Clicky.Core/Claude/ClaudeStreamingChatClient.cs` | ~290 | Port of `ClaudeAPI.swift`: builds the Messages body, POSTs to `{worker}/chat`, streams text deltas. |
+| `Clicky.Core/Claude/ClaudeStreamingChatClient.cs` | ~327 | Port of `ClaudeAPI.swift`: builds the Messages body (16000 max tokens and effort low, because the 5.5 models always think), POSTs to `{worker}/chat`, streams text deltas and the stop reason. |
 | `Clicky.Core/Prompts/CompanionSystemPrompts.cs` | ~73 | Both system prompts, verbatim from `CompanionManager.swift` (a test compares them with the Swift source). |
 | `Clicky.Core/Pointing/PointTagParser.cs` | ~91 | `[POINT:x,y:label:screenN]` and `[POINT:none]` parser with the Swift regex. |
 | `Clicky.Core/Pointing/ScreenCoordinateMapper.cs` | ~145 | Screenshot pixels to physical pixels to overlay DIPs; 1280 px screenshot sizing. |
@@ -110,7 +110,7 @@ Paths are relative to `windows/src/` unless they start with `windows/`.
 | `Clicky.Core/Settings/ClickyUserSettings.cs` | ~117 | `%LOCALAPPDATA%\Clicky\settings.json` load and atomic save. |
 | `Clicky.Core/Diagnostics/ClickyDiagnosticLog.cs` | ~32 | Logging hook Core uses without a logging dependency. |
 | `Clicky.Windows/App.xaml`, `App.xaml.cs`, `app.manifest` | ~90 | No main window, PerMonitorV2 DPI awareness, unhandled-exception logging. |
-| `Clicky.Windows/Orchestration/CompanionManager.cs` | ~794 | Port of `CompanionManager.swift`: push-to-talk, response pipeline, pointing, transient cursor, onboarding demo, panel actions. |
+| `Clicky.Windows/Orchestration/CompanionManager.cs` | ~895 | Port of `CompanionManager.swift`: push-to-talk, response pipeline, pointing, transient cursor, onboarding demo, panel actions. |
 | `Clicky.Windows/Orchestration/BuddyDictationManager.cs` | ~434 | Keyboard push-to-talk dictation: microphone plus one AssemblyAI session per press, finalize on key-up. |
 | `Clicky.Windows/Orchestration/ClickyApplicationServices.cs`, `ClickyApplicationStartup.cs` | ~225 | Composition root and startup (tray mode or a debug mode). |
 | `Clicky.Windows/Orchestration/WindowsPortTodoConstants.cs` | ~47 | Values the port could not determine (fallback line, video, music, feedback link, analytics). |
@@ -129,7 +129,7 @@ Paths are relative to `windows/src/` unless they start with `windows/`.
 | `Clicky.Windows/Panel/CompanionPanelWindow.xaml`, `.xaml.cs` | ~916 | Dark floating panel mirroring `CompanionPanelView.swift`, non-activating. |
 | `Clicky.Windows/Panel/PanelOutsideClickWatcher.cs`, `CompanionPanelPlacementCalculator.cs`, `ClickyDesignTokens.cs`, `PanelNativeMethods.cs` | ~638 | Outside-click dismissal (`WH_MOUSE_LL`), placement by taskbar edge, `DesignSystem.swift` colors. |
 | `Clicky.Windows/Display/DisplayMonitorInfo.cs` | ~155 | Monitor enumeration with physical bounds, work area and DPI; cursor position. |
-| `Clicky.Windows/Diagnostics/ClickyApplicationLog.cs` | ~104 | `%LOCALAPPDATA%\Clicky\logs\clicky.log` plus the parent console for debug modes. |
+| `Clicky.Windows/Diagnostics/ClickyApplicationLog.cs` | ~157 | `%LOCALAPPDATA%\Clicky\logs\clicky.log` plus the launching terminal (inherited handle or attached console) for debug modes. |
 | `Clicky.Windows/Debugging/*.cs` | ~569 | `--capture-test`, `--overlay-test`, `--token-test`, `--ask` and their flags. |
 | `windows/tests/Clicky.Core.Tests/*.cs` | ~1500 | xUnit tests for every Core component, including a verbatim prompt check against the Swift source. |
 
