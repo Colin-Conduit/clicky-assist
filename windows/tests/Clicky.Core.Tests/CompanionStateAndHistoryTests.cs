@@ -88,14 +88,17 @@ public sealed class CompanionStateAndHistoryTests : IDisposable
     [Fact]
     public void MultiScreenLabelsMatchMacStrings()
     {
+        // The Mac labels use an em dash (U+2014); built from its code point to keep it out of source.
+        string emDash = ((char)0x2014).ToString();
+
         Assert.Equal(
-            "screen 1 of 2 — cursor is on this screen (primary focus)",
+            $"screen 1 of 2 {emDash} cursor is on this screen (primary focus)",
             ScreenCaptureLabeling.BuildScreenLabel(0, 2, isCursorScreen: true));
         Assert.Equal(
-            "screen 2 of 2 — secondary screen",
+            $"screen 2 of 2 {emDash} secondary screen",
             ScreenCaptureLabeling.BuildScreenLabel(1, 2, isCursorScreen: false));
         Assert.Equal(
-            "screen 2 of 2 — secondary screen (image dimensions: 1280x720 pixels)",
+            $"screen 2 of 2 {emDash} secondary screen (image dimensions: 1280x720 pixels)",
             ScreenCaptureLabeling.AppendImageDimensions(ScreenCaptureLabeling.BuildScreenLabel(1, 2, false), new ScreenshotDimensions(1280, 720)));
     }
 

@@ -66,8 +66,9 @@ public sealed class ClaudeServerSentEventParserTests
     [Fact]
     public void KeepsMultiByteUtf8CharactersIntactWhenSplitMidCharacter()
     {
-        // "café 😀" contains a two-byte and a four-byte UTF-8 sequence.
-        const string textWithMultiByteCharacters = "café \U0001F600";
+        // An accented e (two UTF-8 bytes) and a code point above U+FFFF (four UTF-8 bytes), built from
+        // code points so the source file itself stays plain ASCII.
+        string textWithMultiByteCharacters = "caf" + (char)0x00E9 + " " + char.ConvertFromUtf32(0x1F600);
         string streamText =
             "event: content_block_delta\n" +
             "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"" + textWithMultiByteCharacters + "\"}}\n\n";

@@ -11,7 +11,8 @@ namespace Clicky.Core.Screen;
 /// </summary>
 public static class ScreenCaptureLabeling
 {
-    private const string EmDash = "—";
+    // Built from its code point (U+2014) so this source file never contains the character itself.
+    private static readonly string EmDash = ((char)0x2014).ToString();
 
     public const string SingleScreenLabel = "user's screen (cursor is here)";
 

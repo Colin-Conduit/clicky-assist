@@ -253,7 +253,7 @@ public static class PointingBubblePhrases
         "found it",
     ];
 
-    /// <summary>Mac: "hey! i'm clicky".</summary>
+    /// <summary>Same greeting as the Mac, minus its exclamation point after "hey".</summary>
     public const string WelcomeMessage = "hey, i'm clicky";
 
     /// <summary>Delay between characters when streaming bubble text, chosen per character in this range.</summary>

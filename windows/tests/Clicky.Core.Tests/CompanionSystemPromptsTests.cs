@@ -9,7 +9,7 @@ namespace Clicky.Core.Tests;
 /// </summary>
 public sealed class CompanionSystemPromptsTests
 {
-    private const char EmDashCharacter = '—';
+    private const char EmDashCharacter = (char)0x2014;
 
     [Fact]
     public void CompanionVoicePromptMatchesSwiftSourceExactly()

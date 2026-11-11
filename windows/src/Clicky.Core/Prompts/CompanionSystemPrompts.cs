@@ -13,7 +13,9 @@ namespace Clicky.Core.Prompts;
 /// </summary>
 public static class CompanionSystemPrompts
 {
-    private const string EmDash = "—";
+    // Built from its code point so this source file never contains the character itself.
+    // Declared before the prompts because static fields initialize in textual order.
+    private static readonly string EmDash = ((char)0x2014).ToString();
 
     /// <summary>System prompt for every push-to-talk voice turn.</summary>
     public static readonly string CompanionVoiceResponseSystemPrompt = $"""
