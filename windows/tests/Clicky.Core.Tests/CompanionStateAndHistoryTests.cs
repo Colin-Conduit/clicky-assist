@@ -86,6 +86,15 @@ public sealed class CompanionStateAndHistoryTests : IDisposable
     }
 
     [Fact]
+    public void SingleSurvivingNonCursorScreenDoesNotClaimTheCursor()
+    {
+        string singleNonCursorLabel = ScreenCaptureLabeling.BuildScreenLabel(0, 1, isCursorScreen: false);
+
+        Assert.DoesNotContain("cursor", singleNonCursorLabel);
+        Assert.StartsWith("screen 1 of 1", singleNonCursorLabel);
+    }
+
+    [Fact]
     public void MultiScreenLabelsMatchMacStrings()
     {
         // The Mac labels use an em dash (U+2014); built from its code point to keep it out of source.
@@ -119,18 +128,18 @@ public sealed class CompanionStateAndHistoryTests : IDisposable
         ClickyUserSettingsStore settingsStore = new(Path.Combine(temporaryFolderPath, "Clicky", "settings.json"));
 
         ClickyUserSettings defaultSettings = settingsStore.Load();
-        Assert.Equal("claude-sonnet-5-5", defaultSettings.SelectedModelIdentifier);
+        Assert.Equal(Clicky.Core.Claude.ClaudeModelIdentifiers.DefaultSonnetModelIdentifier, defaultSettings.SelectedModelIdentifier);
         Assert.Equal("CtrlAlt", defaultSettings.PushToTalkShortcut);
         Assert.False(defaultSettings.HasCompletedOnboarding);
         Assert.True(defaultSettings.IsClickyCursorEnabled);
 
-        defaultSettings.SelectedModelIdentifier = "claude-opus-5-5";
+        defaultSettings.SelectedModelIdentifier = Clicky.Core.Claude.ClaudeModelIdentifiers.OpusModelIdentifier;
         defaultSettings.HasCompletedOnboarding = true;
         defaultSettings.PushToTalkShortcut = "CtrlAltSpace";
         settingsStore.Save(defaultSettings);
 
         ClickyUserSettings reloadedSettings = new ClickyUserSettingsStore(settingsStore.SettingsFilePath).Load();
-        Assert.Equal("claude-opus-5-5", reloadedSettings.SelectedModelIdentifier);
+        Assert.Equal(Clicky.Core.Claude.ClaudeModelIdentifiers.OpusModelIdentifier, reloadedSettings.SelectedModelIdentifier);
         Assert.True(reloadedSettings.HasCompletedOnboarding);
         Assert.Equal(Clicky.Core.PushToTalk.PushToTalkShortcutOption.CtrlAltSpace, reloadedSettings.PushToTalkShortcutOption);
         Assert.False(File.Exists(settingsStore.SettingsFilePath + ".tmp"));
@@ -143,11 +152,11 @@ public sealed class CompanionStateAndHistoryTests : IDisposable
         Directory.CreateDirectory(temporaryFolderPath);
 
         File.WriteAllText(settingsFilePath, "{ this is not json");
-        Assert.Equal("claude-sonnet-5-5", new ClickyUserSettingsStore(settingsFilePath).Load().SelectedModelIdentifier);
+        Assert.Equal(Clicky.Core.Claude.ClaudeModelIdentifiers.DefaultSonnetModelIdentifier, new ClickyUserSettingsStore(settingsFilePath).Load().SelectedModelIdentifier);
 
         File.WriteAllText(settingsFilePath, "{\"selectedModel\":\"claude-sonnet-4-6\",\"pushToTalkShortcut\":\"ShiftFunction\"}");
         ClickyUserSettings normalizedSettings = new ClickyUserSettingsStore(settingsFilePath).Load();
-        Assert.Equal("claude-sonnet-5-5", normalizedSettings.SelectedModelIdentifier);
+        Assert.Equal(Clicky.Core.Claude.ClaudeModelIdentifiers.DefaultSonnetModelIdentifier, normalizedSettings.SelectedModelIdentifier);
         Assert.Equal("CtrlAlt", normalizedSettings.PushToTalkShortcut);
     }
 

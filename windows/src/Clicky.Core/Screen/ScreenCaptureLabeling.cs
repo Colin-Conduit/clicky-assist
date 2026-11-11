@@ -22,7 +22,10 @@ public static class ScreenCaptureLabeling
     /// </summary>
     public static string BuildScreenLabel(int zeroBasedScreenIndex, int screenCount, bool isCursorScreen)
     {
-        if (screenCount == 1)
+        // The Mac always has the cursor on its single screen. On Windows one screen can also be the
+        // only survivor of a capture where the cursor monitor failed, and then the "cursor is here"
+        // label would be false, so that case falls through to the secondary-screen wording.
+        if (screenCount == 1 && isCursorScreen)
         {
             return SingleScreenLabel;
         }

@@ -12,6 +12,9 @@ public sealed record ClaudeTextDeltaEvent(string TextChunk) : ClaudeStreamEvent;
 /// <summary>The message_stop event: Claude finished the reply normally.</summary>
 public sealed record ClaudeMessageStopEvent : ClaudeStreamEvent;
 
+/// <summary>The message_delta event, which carries why the reply ended (end_turn, max_tokens, refusal, ...).</summary>
+public sealed record ClaudeMessageDeltaEvent(string? StopReason) : ClaudeStreamEvent;
+
 /// <summary>An in-stream error event, for example overloaded_error.</summary>
 public sealed record ClaudeStreamErrorEvent(string ErrorType, string ErrorMessage) : ClaudeStreamEvent;
 
@@ -167,6 +170,8 @@ public sealed class ClaudeServerSentEventParser
             {
                 case "content_block_delta":
                     return ParseContentBlockDelta(eventRoot);
+                case "message_delta":
+                    return ParseMessageDelta(eventRoot);
                 case "message_stop":
                     return new ClaudeMessageStopEvent();
                 case "error":
@@ -195,6 +200,18 @@ public sealed class ClaudeServerSentEventParser
         }
 
         return null;
+    }
+
+    private static ClaudeStreamEvent ParseMessageDelta(JsonElement eventRoot)
+    {
+        string? stopReason = eventRoot.TryGetProperty("delta", out JsonElement deltaElement)
+            && deltaElement.ValueKind == JsonValueKind.Object
+            && deltaElement.TryGetProperty("stop_reason", out JsonElement stopReasonElement)
+            && stopReasonElement.ValueKind == JsonValueKind.String
+                ? stopReasonElement.GetString()
+                : null;
+
+        return new ClaudeMessageDeltaEvent(stopReason);
     }
 
     private static ClaudeStreamEvent ParseErrorEvent(JsonElement eventRoot)

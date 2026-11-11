@@ -27,7 +27,15 @@ public static class PointTargetResolver
             return capturedScreensInPromptOrder[requestedScreenNumber - 1];
         }
 
-        return capturedScreensInPromptOrder.FirstOrDefault(capturedScreen => capturedScreen.IsCursorScreen);
+        CapturedScreen? cursorScreen = capturedScreensInPromptOrder.FirstOrDefault(capturedScreen => capturedScreen.IsCursorScreen);
+        if (cursorScreen is not null)
+        {
+            return cursorScreen;
+        }
+
+        // With exactly one screenshot sent, Claude can only have meant that one, even when it is
+        // not the cursor screen (the cursor monitor's capture failed).
+        return capturedScreensInPromptOrder.Count == 1 ? capturedScreensInPromptOrder[0] : null;
     }
 
     /// <summary>

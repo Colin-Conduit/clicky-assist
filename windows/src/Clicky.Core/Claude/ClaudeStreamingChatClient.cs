@@ -17,7 +17,8 @@ public sealed record ClaudeChatRequest(
     string UserPrompt);
 
 /// <summary>Final result of a streamed reply.</summary>
-public sealed record ClaudeStreamingResponse(string FullResponseText, TimeSpan Duration, bool DidReceiveMessageStop);
+/// <param name="StopReason">From the message_delta event, for example "end_turn", "max_tokens" or "refusal"; null if the stream never sent one.</param>
+public sealed record ClaudeStreamingResponse(string FullResponseText, TimeSpan Duration, bool DidReceiveMessageStop, string? StopReason);
 
 /// <summary>
 /// Thrown for a non-2xx status from the worker's /chat route, or for an error event
@@ -43,8 +44,22 @@ public sealed class ClaudeApiException : Exception
 /// </summary>
 public sealed class ClaudeStreamingChatClient
 {
-    /// <summary>Same max_tokens as the Mac streaming call.</summary>
-    public const int MaximumResponseTokens = 1024;
+    /// <summary>
+    /// The Mac sends 1024, sized for Claude Sonnet 4.6, which does not think unless asked.
+    /// Claude Sonnet 5.5 and Claude Opus 5.5 always run adaptive thinking (sending
+    /// thinking disabled returns HTTP 400 on both), and thinking tokens count toward
+    /// max_tokens, so 1024 could cut a reply off mid-sentence. 16000 leaves room for the
+    /// thinking plus a long "explain more" answer while still bounding a runaway reply that
+    /// would otherwise be read aloud for minutes.
+    /// </summary>
+    public const int MaximumResponseTokens = 16000;
+
+    /// <summary>
+    /// Sent as output_config.effort. Voice turns are latency-sensitive chat, and "low" keeps
+    /// thinking short on both picker models (the closest match to the Mac's no-thinking
+    /// Sonnet 4.6 behavior). Supported on both models without a beta header.
+    /// </summary>
+    public const string ResponseEffortLevel = "low";
 
     /// <summary>Upper bound for one whole streamed reply, matching the Mac session's 300 second resource timeout.</summary>
     public static readonly TimeSpan MaximumStreamDuration = TimeSpan.FromSeconds(300);
@@ -128,43 +143,46 @@ public sealed class ClaudeStreamingChatClient
         await using Stream responseBodyStream = await chatHttpResponse.Content.ReadAsStreamAsync(streamTimeout.Token).ConfigureAwait(false);
 
         ClaudeServerSentEventParser serverSentEventParser = new();
-        StringBuilder accumulatedResponseText = new();
-        bool didReceiveMessageStop = false;
+        StreamAccumulationState streamAccumulationState = new();
         byte[] networkReadBuffer = new byte[NetworkReadBufferSizeInBytes];
 
-        while (!didReceiveMessageStop)
+        while (!streamAccumulationState.DidReceiveMessageStop)
         {
             int bytesRead = await responseBodyStream.ReadAsync(networkReadBuffer, streamTimeout.Token).ConfigureAwait(false);
             if (bytesRead == 0)
             {
-                didReceiveMessageStop = HandleStreamEvents(serverSentEventParser.CompleteStream(), accumulatedResponseText, onAccumulatedTextUpdated);
+                HandleStreamEvents(serverSentEventParser.CompleteStream(), streamAccumulationState, onAccumulatedTextUpdated);
                 break;
             }
 
-            didReceiveMessageStop = HandleStreamEvents(
+            HandleStreamEvents(
                 serverSentEventParser.AppendBytes(networkReadBuffer.AsSpan(0, bytesRead)),
-                accumulatedResponseText,
+                streamAccumulationState,
                 onAccumulatedTextUpdated);
         }
 
-        return new ClaudeStreamingResponse(accumulatedResponseText.ToString(), responseStopwatch.Elapsed, didReceiveMessageStop);
+        return new ClaudeStreamingResponse(
+            streamAccumulationState.AccumulatedResponseText.ToString(),
+            responseStopwatch.Elapsed,
+            streamAccumulationState.DidReceiveMessageStop,
+            streamAccumulationState.StopReason);
     }
 
-    /// <summary>Returns true once a message_stop event has been seen.</summary>
-    private static bool HandleStreamEvents(
+    private static void HandleStreamEvents(
         IReadOnlyList<ClaudeStreamEvent> streamEvents,
-        StringBuilder accumulatedResponseText,
+        StreamAccumulationState streamAccumulationState,
         Action<string>? onAccumulatedTextUpdated)
     {
-        bool didReceiveMessageStop = false;
-
         foreach (ClaudeStreamEvent streamEvent in streamEvents)
         {
             switch (streamEvent)
             {
                 case ClaudeTextDeltaEvent textDeltaEvent:
-                    accumulatedResponseText.Append(textDeltaEvent.TextChunk);
-                    onAccumulatedTextUpdated?.Invoke(accumulatedResponseText.ToString());
+                    streamAccumulationState.AccumulatedResponseText.Append(textDeltaEvent.TextChunk);
+                    onAccumulatedTextUpdated?.Invoke(streamAccumulationState.AccumulatedResponseText.ToString());
+                    break;
+                case ClaudeMessageDeltaEvent messageDeltaEvent:
+                    streamAccumulationState.StopReason = messageDeltaEvent.StopReason ?? streamAccumulationState.StopReason;
                     break;
                 case ClaudeStreamErrorEvent streamErrorEvent:
                     throw new ClaudeApiException(
@@ -172,18 +190,24 @@ public sealed class ClaudeStreamingChatClient
                         null,
                         streamErrorEvent.ErrorType);
                 case ClaudeMessageStopEvent:
-                    didReceiveMessageStop = true;
+                    streamAccumulationState.DidReceiveMessageStop = true;
                     break;
             }
         }
+    }
 
-        return didReceiveMessageStop;
+    private sealed class StreamAccumulationState
+    {
+        public StringBuilder AccumulatedResponseText { get; } = new();
+        public bool DidReceiveMessageStop { get; set; }
+        public string? StopReason { get; set; }
     }
 
     /// <summary>
-    /// Builds the Anthropic Messages body exactly like the Mac app: prior exchanges as plain
+    /// Builds the Anthropic Messages body with the Mac app's layout: prior exchanges as plain
     /// text user/assistant turns, then one user turn with every image followed by its label,
-    /// then the user's prompt.
+    /// then the user's prompt. Two differences for the 5.5 models: output_config.effort is set
+    /// (see <see cref="ResponseEffortLevel"/>), and exchanges with an empty side are skipped.
     /// </summary>
     public static string BuildRequestBodyJson(string modelIdentifier, ClaudeChatRequest chatRequest)
     {
@@ -196,10 +220,23 @@ public sealed class ClaudeStreamingChatClient
             requestBodyWriter.WriteBoolean("stream", true);
             requestBodyWriter.WriteString("system", chatRequest.SystemPrompt);
 
+            requestBodyWriter.WriteStartObject("output_config");
+            requestBodyWriter.WriteString("effort", ResponseEffortLevel);
+            requestBodyWriter.WriteEndObject();
+
             requestBodyWriter.WriteStartArray("messages");
 
             foreach (ConversationExchange previousExchange in chatRequest.ConversationHistory)
             {
+                // The Messages API rejects empty message content, so an exchange with an empty
+                // side (for example a reply that was only a POINT tag) would fail every later turn.
+                bool isExchangeSendable = previousExchange.UserTranscript.Trim().Length > 0
+                    && previousExchange.AssistantResponse.Trim().Length > 0;
+                if (!isExchangeSendable)
+                {
+                    continue;
+                }
+
                 WriteTextMessage(requestBodyWriter, "user", previousExchange.UserTranscript);
                 WriteTextMessage(requestBodyWriter, "assistant", previousExchange.AssistantResponse);
             }

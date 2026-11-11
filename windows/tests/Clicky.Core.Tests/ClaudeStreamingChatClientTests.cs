@@ -21,14 +21,18 @@ public sealed class ClaudeStreamingChatClientTests
             [new ConversationExchange("earlier question", "earlier answer")],
             "what is on my screen");
 
-        string requestBodyJson = ClaudeStreamingChatClient.BuildRequestBodyJson("claude-sonnet-5-5", chatRequest);
+        string requestBodyJson = ClaudeStreamingChatClient.BuildRequestBodyJson(ClaudeModelIdentifiers.DefaultSonnetModelIdentifier, chatRequest);
 
         using JsonDocument requestBodyDocument = JsonDocument.Parse(requestBodyJson);
         JsonElement requestBodyRoot = requestBodyDocument.RootElement;
-        Assert.Equal("claude-sonnet-5-5", requestBodyRoot.GetProperty("model").GetString());
-        Assert.Equal(1024, requestBodyRoot.GetProperty("max_tokens").GetInt32());
+        Assert.Equal(ClaudeModelIdentifiers.DefaultSonnetModelIdentifier, requestBodyRoot.GetProperty("model").GetString());
+        Assert.Equal(ClaudeStreamingChatClient.MaximumResponseTokens, requestBodyRoot.GetProperty("max_tokens").GetInt32());
         Assert.True(requestBodyRoot.GetProperty("stream").GetBoolean());
         Assert.Equal("system prompt text", requestBodyRoot.GetProperty("system").GetString());
+        Assert.Equal("low", requestBodyRoot.GetProperty("output_config").GetProperty("effort").GetString());
+
+        // Thinking cannot be disabled on the 5.5 models (HTTP 400), so the body must not try.
+        Assert.False(requestBodyRoot.TryGetProperty("thinking", out _));
 
         JsonElement[] messages = [.. requestBodyRoot.GetProperty("messages").EnumerateArray()];
         Assert.Equal(3, messages.Length);
@@ -46,6 +50,45 @@ public sealed class ClaudeStreamingChatClientTests
         Assert.Equal("image/png", currentContentBlocks[2].GetProperty("source").GetProperty("media_type").GetString());
         Assert.Equal("screen 2 label", currentContentBlocks[3].GetProperty("text").GetString());
         Assert.Equal("what is on my screen", currentContentBlocks[4].GetProperty("text").GetString());
+    }
+
+    [Fact]
+    public void ExchangesWithAnEmptySideAreLeftOutOfTheRequest()
+    {
+        ClaudeChatRequest chatRequest = new(
+            [],
+            "system",
+            [
+                new ConversationExchange("point at the save button", string.Empty),
+                new ConversationExchange("   ", "an answer to nothing"),
+                new ConversationExchange("what is this", "it is a settings page"),
+            ],
+            "next question");
+
+        using JsonDocument requestBodyDocument = JsonDocument.Parse(
+            ClaudeStreamingChatClient.BuildRequestBodyJson(ClaudeModelIdentifiers.DefaultSonnetModelIdentifier, chatRequest));
+        JsonElement[] messages = [.. requestBodyDocument.RootElement.GetProperty("messages").EnumerateArray()];
+
+        Assert.Equal(3, messages.Length);
+        Assert.Equal("what is this", messages[0].GetProperty("content").GetString());
+        Assert.Equal("it is a settings page", messages[1].GetProperty("content").GetString());
+        Assert.All(messages.Take(2), message => Assert.NotEqual(string.Empty, message.GetProperty("content").GetString()));
+    }
+
+    [Fact]
+    public async Task ReportsTheStopReasonFromMessageDelta()
+    {
+        string streamText =
+            "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"partial\"}}\n\n" +
+            "event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"max_tokens\"}}\n\n" +
+            "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n";
+        using HttpClient fakeHttpClient = new(new FakeWorkerHandler(HttpStatusCode.OK, streamText, readChunkSizeInBytes: 7));
+        ClaudeStreamingChatClient chatClient = new(fakeHttpClient, TestChatEndpointUrl, ClaudeModelIdentifiers.DefaultSonnetModelIdentifier);
+
+        ClaudeStreamingResponse streamingResponse = await chatClient.StreamResponseAsync(BuildMinimalChatRequest(), null, CancellationToken.None);
+
+        Assert.Equal("max_tokens", streamingResponse.StopReason);
+        Assert.Equal("partial", streamingResponse.FullResponseText);
     }
 
     [Fact]
@@ -111,7 +154,7 @@ public sealed class ClaudeStreamingChatClientTests
         await chatClient.StreamResponseAsync(BuildMinimalChatRequest(), null, CancellationToken.None);
 
         using JsonDocument sentBodyDocument = JsonDocument.Parse(fakeWorkerHandler.LastRequestBody!);
-        Assert.Equal("claude-opus-5-5", sentBodyDocument.RootElement.GetProperty("model").GetString());
+        Assert.Equal(ClaudeModelIdentifiers.OpusModelIdentifier, sentBodyDocument.RootElement.GetProperty("model").GetString());
         Assert.Equal(TestChatEndpointUrl, fakeWorkerHandler.LastRequestUri);
         Assert.Equal(HttpMethod.Post, fakeWorkerHandler.LastRequestMethod);
     }
@@ -119,10 +162,12 @@ public sealed class ClaudeStreamingChatClientTests
     [Fact]
     public void ModelConstantsAndNormalization()
     {
+        // The one place tests spell out the model ids: it pins the values the task specifies, so a
+        // change to ClaudeModelIdentifiers.cs is a deliberate, visible test update.
         Assert.Equal("claude-sonnet-5-5", ClaudeModelIdentifiers.DefaultSonnetModelIdentifier);
         Assert.Equal("claude-opus-5-5", ClaudeModelIdentifiers.OpusModelIdentifier);
         Assert.Equal(ClaudeModelIdentifiers.DefaultSonnetModelIdentifier, ClaudeModelIdentifiers.NormalizeModelIdentifier("claude-sonnet-4-6"));
-        Assert.Equal(ClaudeModelIdentifiers.OpusModelIdentifier, ClaudeModelIdentifiers.NormalizeModelIdentifier("claude-opus-5-5"));
+        Assert.Equal(ClaudeModelIdentifiers.OpusModelIdentifier, ClaudeModelIdentifiers.NormalizeModelIdentifier(ClaudeModelIdentifiers.OpusModelIdentifier));
     }
 
     private static ClaudeChatRequest BuildMinimalChatRequest()

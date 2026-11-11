@@ -172,6 +172,26 @@ public sealed class ScreenCoordinateMapperTests
     }
 
     [Fact]
+    public void SingleNonCursorScreenIsStillTheTarget()
+    {
+        CapturedScreen onlySurvivingScreen = BuildCapturedScreen(isCursorScreen: false, new PhysicalPixelRectangle(1920, 0, 1920, 1080), 1.0);
+
+        PointTarget? pointTarget = PointTargetResolver.ResolvePointTarget(PointTagParser.Parse("there [POINT:10,10:button]"), [onlySurvivingScreen]);
+
+        Assert.NotNull(pointTarget);
+        Assert.Same(onlySurvivingScreen, pointTarget.TargetScreen);
+    }
+
+    [Fact]
+    public void NoCursorScreenAmongSeveralGivesNoFallbackTarget()
+    {
+        CapturedScreen firstScreen = BuildCapturedScreen(isCursorScreen: false, new PhysicalPixelRectangle(0, 0, 1920, 1080), 1.0);
+        CapturedScreen secondScreen = BuildCapturedScreen(isCursorScreen: false, new PhysicalPixelRectangle(1920, 0, 1920, 1080), 1.0);
+
+        Assert.Null(PointTargetResolver.ResolvePointTarget(PointTagParser.Parse("there [POINT:10,10:button]"), [firstScreen, secondScreen]));
+    }
+
+    [Fact]
     public void PointNoneProducesNoTarget()
     {
         CapturedScreen cursorScreen = BuildCapturedScreen(isCursorScreen: true, new PhysicalPixelRectangle(0, 0, 1920, 1080), 1.0);

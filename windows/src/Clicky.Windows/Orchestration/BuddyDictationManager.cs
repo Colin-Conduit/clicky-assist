@@ -127,6 +127,15 @@ public sealed class BuddyDictationManager : IDisposable
             ResetSessionState();
             return;
         }
+        catch (Exception microphoneStartException)
+        {
+            // Any other start failure (for example another app holding the device in exclusive
+            // mode) must also end the press cleanly instead of leaving the waveform up with no audio.
+            ClickyApplicationLog.Write(LogCategory, $"Microphone failed to start: {microphoneStartException.GetType().Name}: {microphoneStartException.Message}");
+            LastErrorMessage = "couldn't start voice input. try again.";
+            ResetSessionState();
+            return;
+        }
 
         // The session callbacks are created before the session object exists. They capture this
         // per-press holder so they can ignore events from a session that has already been

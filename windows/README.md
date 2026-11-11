@@ -101,7 +101,7 @@ The only third-party package is NAudio (WASAPI capture and MP3 playback). Tests 
 
 - **AltGr layouts.** On keyboards with an AltGr key, Windows reports AltGr as Ctrl + Alt, so AltGr alone (and typing characters such as @ on some layouts) starts push-to-talk. Switch `pushToTalkShortcut` to `CtrlAltSpace` if that gets in the way.
 - **Keys pass through.** The hook only listens, like the Mac's event tap, so the shortcut also reaches the focused app.
-- **Elevated windows.** When an app running as administrator has focus, Windows may not deliver its key events to Clicky's hook, so push-to-talk may not start there.
+- **Administrator windows.** When an app running as administrator has focus, Windows may not deliver its key events to Clicky's hook, so push-to-talk may not start there.
 - **Onboarding.** The Mac's intro video and background music are not ported (see `WindowsPortTodoConstants.cs`). Windows goes from the welcome bubble straight to the pointing demo.
 - **Not ported.** Usage analytics, the onboarding email form, and the feedback button point at the upstream author's accounts and are left out.
 - **Topmost order.** The overlay is a topmost window, so the taskbar, the Start menu, and full-screen exclusive games can draw above it.

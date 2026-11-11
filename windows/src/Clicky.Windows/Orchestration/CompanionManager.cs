@@ -42,6 +42,9 @@ public sealed class CompanionManager : ICompanionPanelActions, IDisposable
     private static readonly TimeSpan OnboardingPromptFadeOutDuration = TimeSpan.FromSeconds(0.35);
     private static readonly TimeSpan ResponseBubbleLingerAfterSpeech = TimeSpan.FromSeconds(1.5);
 
+    /// <summary>Welcome (about 5 s) plus a demo request and flight; generous so a slow reply still finishes normally.</summary>
+    private static readonly TimeSpan OnboardingSequenceSafetyTimeout = TimeSpan.FromSeconds(90);
+
     private readonly ClickyUserSettingsStore userSettingsStore;
     private readonly ClickyUserSettings userSettings;
     private readonly ClaudeStreamingChatClient claudeChatClient;
@@ -65,6 +68,9 @@ public sealed class CompanionManager : ICompanionPanelActions, IDisposable
     private CancellationTokenSource? onboardingPromptDismissCancellation;
     private bool isOnboardingSequenceRunning;
     private bool isWaitingForOnboardingDemoPointingToFinish;
+    private bool hasWelcomeAnimationCompletedForCurrentOnboarding;
+    private int onboardingSequenceIdentifier;
+    private CancellationTokenSource? onboardingSafetyTimeoutCancellation;
 
     public CompanionManager(
         ClickyUserSettingsStore userSettingsStore,
@@ -186,6 +192,7 @@ public sealed class CompanionManager : ICompanionPanelActions, IDisposable
         transientHideCancellation?.Cancel();
         responseBubbleHideCancellation?.Cancel();
         onboardingPromptDismissCancellation?.Cancel();
+        onboardingSafetyTimeoutCancellation?.Cancel();
         buddyDictationManager.CancelCurrentDictation();
         speechPlaybackService.StopPlayback();
         overlayWindowManager.HideOverlays();
@@ -274,8 +281,11 @@ public sealed class CompanionManager : ICompanionPanelActions, IDisposable
 
         PanelDismissRequested?.Invoke();
 
-        // A new utterance interrupts the previous reply and its audio.
+        // A new utterance interrupts the previous reply and its audio. The cancelled pipeline
+        // leaves currentResponseTask alone, so clear it here; otherwise a press that produces no
+        // transcript would never schedule the transient hide.
         currentResponseCancellation?.Cancel();
+        currentResponseTask = null;
         speechPlaybackService.StopPlayback();
         HideResponseBubble();
         OverlayState.DetectedElementPointingTarget = null;
@@ -354,6 +364,12 @@ public sealed class CompanionManager : ICompanionPanelActions, IDisposable
     /// </summary>
     private Task<CompanionTurnResult> RunResponsePipelineAsync(string transcript, Action<string>? onAccumulatedResponseText)
     {
+        // The dictation manager reports Idle (and may schedule a transient hide) just before it
+        // hands over the transcript. The Mac never sees that gap because its state sink runs
+        // asynchronously; here the hide is cancelled explicitly so the overlay stays up for the reply.
+        transientHideCancellation?.Cancel();
+        transientHideCancellation = null;
+
         currentResponseCancellation?.Cancel();
         speechPlaybackService.StopPlayback();
 
@@ -402,7 +418,15 @@ public sealed class CompanionManager : ICompanionPanelActions, IDisposable
             cancellationToken.ThrowIfCancellationRequested();
 
             fullResponseText = streamingResponse.FullResponseText;
-            ClickyApplicationLog.Write(LogCategory, $"Claude replied in {streamingResponse.Duration.TotalMilliseconds:F0} ms ({fullResponseText.Length} characters, model {claudeChatClient.ModelIdentifier}).");
+            ClickyApplicationLog.Write(
+                LogCategory,
+                $"Claude replied in {streamingResponse.Duration.TotalMilliseconds:F0} ms ({fullResponseText.Length} characters, model {claudeChatClient.ModelIdentifier}, stop reason {streamingResponse.StopReason ?? "none"}).");
+
+            // A stream that ended early with no text is a failed turn, not an empty answer.
+            if (!streamingResponse.DidReceiveMessageStop && fullResponseText.Trim().Length == 0)
+            {
+                throw new ClaudeApiException("Claude's reply ended before any text arrived.", null, null);
+            }
 
             PointTagParseResult pointTagParseResult = PointTagParser.Parse(fullResponseText);
             spokenText = pointTagParseResult.SpokenText;
@@ -430,8 +454,14 @@ public sealed class CompanionManager : ICompanionPanelActions, IDisposable
                 ClickyApplicationLog.Write(LogCategory, $"Element pointing: {pointTagParseResult.ElementLabel ?? "no element"}");
             }
 
-            // History stores the reply without the tag so it does not confuse later turns.
-            conversationHistory.AppendExchange(transcript, spokenText);
+            // History stores the reply without the tag so it does not confuse later turns. A reply
+            // that was only a tag has no text to remember, and the Messages API rejects an empty
+            // assistant message, so it is not stored (the Mac stores it; that breaks later turns).
+            if (spokenText.Trim().Length > 0)
+            {
+                conversationHistory.AppendExchange(transcript, spokenText);
+            }
+
             ClickyApplicationLog.Write(LogCategory, $"Conversation history: {conversationHistory.ExchangeCount} exchanges.");
 
             if (spokenText.Trim().Length > 0)
@@ -441,6 +471,9 @@ public sealed class CompanionManager : ICompanionPanelActions, IDisposable
                     byte[] spokenAudioBytes = await elevenLabsSpeechClient.FetchSpeechAudioAsync(spokenText, cancellationToken);
                     cancellationToken.ThrowIfCancellationRequested();
                     await speechPlaybackService.StartPlayingMp3Async(spokenAudioBytes, cancellationToken);
+
+                    // A press can land between playback starting and this continuation running.
+                    cancellationToken.ThrowIfCancellationRequested();
                     VoiceState = CompanionVoiceState.Responding;
                     ShowResponseBubble(spokenText);
                     ClickyApplicationLog.Write(LogCategory, $"Speaking reply ({spokenAudioBytes.Length / 1024} KB of audio).");
@@ -449,7 +482,7 @@ public sealed class CompanionManager : ICompanionPanelActions, IDisposable
                 {
                     failureDescription = $"TTS failed: {textToSpeechException.Message}";
                     ClickyApplicationLog.Write(LogCategory, failureDescription);
-                    await SpeakErrorFallbackAsync();
+                    await SpeakErrorFallbackAsync(cancellationToken);
                 }
             }
         }
@@ -462,7 +495,7 @@ public sealed class CompanionManager : ICompanionPanelActions, IDisposable
         {
             failureDescription = $"Response failed: {responseException.GetType().Name}: {responseException.Message}";
             ClickyApplicationLog.Write(LogCategory, failureDescription);
-            await SpeakErrorFallbackAsync();
+            await SpeakErrorFallbackAsync(cancellationToken);
         }
         finally
         {
@@ -484,12 +517,21 @@ public sealed class CompanionManager : ICompanionPanelActions, IDisposable
     }
 
     /// <summary>Speaks the TODO fallback line with the Windows system voice (the Mac uses NSSpeechSynthesizer).</summary>
-    private async Task SpeakErrorFallbackAsync()
+    private async Task SpeakErrorFallbackAsync(CancellationToken cancellationToken)
     {
         try
         {
-            await speechPlaybackService.StartSpeakingWithSystemVoiceAsync(WindowsPortTodoConstants.ResponseErrorFallbackSpokenLine, CancellationToken.None);
-            VoiceState = CompanionVoiceState.Responding;
+            await speechPlaybackService.StartSpeakingWithSystemVoiceAsync(WindowsPortTodoConstants.ResponseErrorFallbackSpokenLine, cancellationToken);
+
+            // Skip the state change if a newer press already took over.
+            if (!cancellationToken.IsCancellationRequested)
+            {
+                VoiceState = CompanionVoiceState.Responding;
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // A newer press interrupted the fallback line; nothing to report.
         }
         catch (Exception systemVoiceException)
         {
@@ -548,7 +590,8 @@ public sealed class CompanionManager : ICompanionPanelActions, IDisposable
     /// </summary>
     private async void ScheduleTransientHideIfNeeded()
     {
-        if (userSettings.IsClickyCursorEnabled || !IsOverlayVisible)
+        // Onboarding owns the overlay until it finishes; hiding it would cut the welcome or demo short.
+        if (userSettings.IsClickyCursorEnabled || !IsOverlayVisible || isOnboardingSequenceRunning)
         {
             return;
         }
@@ -585,10 +628,46 @@ public sealed class CompanionManager : ICompanionPanelActions, IDisposable
     private void BeginOnboardingSequence()
     {
         // TODO(windows-port): the Mac also starts background music here; see WindowsPortTodoConstants.OnboardingMusicAssetFileName.
+
+        // A hide scheduled by an earlier transient-mode turn would otherwise fade the welcome away.
+        transientHideCancellation?.Cancel();
+        transientHideCancellation = null;
+
+        onboardingSequenceIdentifier++;
         isOnboardingSequenceRunning = true;
+        hasWelcomeAnimationCompletedForCurrentOnboarding = false;
         isWaitingForOnboardingDemoPointingToFinish = false;
         DismissOnboardingPrompt();
         ShowOverlaysOnAllMonitors(isFirstAppearance: true);
+        StartOnboardingSafetyTimeout(onboardingSequenceIdentifier);
+    }
+
+    /// <summary>
+    /// Push-to-talk is ignored while onboarding runs. If something cuts the sequence short in a
+    /// way no event reports (the welcome window closed early, a demo request that hangs), this
+    /// timeout ends it so push-to-talk can never stay disabled for the rest of the session.
+    /// </summary>
+    private async void StartOnboardingSafetyTimeout(int sequenceIdentifier)
+    {
+        onboardingSafetyTimeoutCancellation?.Cancel();
+        CancellationTokenSource safetyTimeoutCancellation = new();
+        onboardingSafetyTimeoutCancellation = safetyTimeoutCancellation;
+
+        try
+        {
+            await Task.Delay(OnboardingSequenceSafetyTimeout, safetyTimeoutCancellation.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        if (isOnboardingSequenceRunning && sequenceIdentifier == onboardingSequenceIdentifier)
+        {
+            ClickyApplicationLog.Write(LogCategory, $"Onboarding did not finish within {OnboardingSequenceSafetyTimeout.TotalSeconds:0} s; re-enabling push-to-talk.");
+            isWaitingForOnboardingDemoPointingToFinish = false;
+            FinishOnboardingSequence();
+        }
     }
 
     /// <summary>
@@ -599,10 +678,27 @@ public sealed class CompanionManager : ICompanionPanelActions, IDisposable
     /// </summary>
     private async void HandleWelcomeAnimationCompleted()
     {
-        bool didStartPointing = await PerformOnboardingDemoInteractionAsync();
-        if (didStartPointing)
+        if (!isOnboardingSequenceRunning)
         {
+            return;
+        }
+
+        int sequenceIdentifier = onboardingSequenceIdentifier;
+        hasWelcomeAnimationCompletedForCurrentOnboarding = true;
+
+        OverlayPointingTarget? demoPointingTarget = await PerformOnboardingDemoInteractionAsync();
+
+        // Onboarding may have been replayed, timed out or finished while Claude was answering.
+        if (!isOnboardingSequenceRunning || sequenceIdentifier != onboardingSequenceIdentifier)
+        {
+            return;
+        }
+
+        if (demoPointingTarget is not null && IsOverlayVisible)
+        {
+            // Mark the wait first: the overlay can report the flight finished on its next turn.
             isWaitingForOnboardingDemoPointingToFinish = true;
+            OverlayState.DetectedElementPointingTarget = demoPointingTarget;
             return;
         }
 
@@ -622,20 +718,23 @@ public sealed class CompanionManager : ICompanionPanelActions, IDisposable
 
     private void FinishOnboardingSequence()
     {
+        onboardingSafetyTimeoutCancellation?.Cancel();
+        onboardingSafetyTimeoutCancellation = null;
         isOnboardingSequenceRunning = false;
         StartOnboardingPromptStream();
     }
 
     /// <summary>
     /// Captures the cursor screen and asks Claude for one specific thing to point at with a short
-    /// comment, then flies there with that comment as the bubble text. Returns true when a pointing
-    /// flight started. Port of performOnboardingDemoInteraction.
+    /// comment. Returns the pointing target with that comment as the bubble text, or null when
+    /// there is nothing to point at. Port of performOnboardingDemoInteraction; the caller starts
+    /// the flight so a demo that returns after a replay cannot fly on its own.
     /// </summary>
-    private async Task<bool> PerformOnboardingDemoInteractionAsync()
+    private async Task<OverlayPointingTarget?> PerformOnboardingDemoInteractionAsync()
     {
         if (VoiceState is not (CompanionVoiceState.Idle or CompanionVoiceState.Responding))
         {
-            return false;
+            return null;
         }
 
         try
@@ -647,7 +746,7 @@ public sealed class CompanionManager : ICompanionPanelActions, IDisposable
             if (cursorScreenCapture is null)
             {
                 ClickyApplicationLog.Write(LogCategory, "Onboarding demo: no cursor screen found.");
-                return false;
+                return null;
             }
 
             ClaudeChatRequest demoChatRequest = new(
@@ -663,20 +762,19 @@ public sealed class CompanionManager : ICompanionPanelActions, IDisposable
             if (demoPointTarget is null)
             {
                 ClickyApplicationLog.Write(LogCategory, "Onboarding demo: no element to point at.");
-                return false;
+                return null;
             }
 
-            OverlayState.DetectedElementPointingTarget = new OverlayPointingTarget(
+            ClickyApplicationLog.Write(LogCategory, $"Onboarding demo: pointing at \"{demoParseResult.ElementLabel ?? "element"}\".");
+            return new OverlayPointingTarget(
                 demoPointTarget.TargetLocationInPhysicalPixels,
                 cursorScreenCapture.MonitorBoundsInPhysicalPixels,
                 CustomBubbleText: demoParseResult.SpokenText);
-            ClickyApplicationLog.Write(LogCategory, $"Onboarding demo: pointing at \"{demoParseResult.ElementLabel ?? "element"}\".");
-            return true;
         }
         catch (Exception demoException)
         {
             ClickyApplicationLog.Write(LogCategory, $"Onboarding demo error: {demoException.GetType().Name}: {demoException.Message}");
-            return false;
+            return null;
         }
     }
 
@@ -776,8 +874,11 @@ public sealed class CompanionManager : ICompanionPanelActions, IDisposable
             return;
         }
 
-        ClickyApplicationLog.Write(LogCategory, "Display configuration changed; rebuilding overlays.");
-        ShowOverlaysOnAllMonitors(isFirstAppearance: false);
+        // If the welcome bubble was still playing, play it again on the rebuilt overlays so the
+        // onboarding sequence (and the push-to-talk gate it holds) still completes.
+        bool shouldReplayWelcomeAnimation = isOnboardingSequenceRunning && !hasWelcomeAnimationCompletedForCurrentOnboarding;
+        ClickyApplicationLog.Write(LogCategory, $"Display configuration changed; rebuilding overlays (replay welcome: {shouldReplayWelcomeAnimation}).");
+        ShowOverlaysOnAllMonitors(isFirstAppearance: shouldReplayWelcomeAnimation);
     }
 
     private void SaveUserSettings()

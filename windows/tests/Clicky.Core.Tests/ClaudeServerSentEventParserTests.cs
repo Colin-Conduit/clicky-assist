@@ -35,7 +35,8 @@ public sealed class ClaudeServerSentEventParserTests
             parsedEvents,
             firstEvent => Assert.Equal(new ClaudeTextDeltaEvent("hello "), firstEvent),
             secondEvent => Assert.Equal(new ClaudeTextDeltaEvent("there [POINT:none]"), secondEvent),
-            thirdEvent => Assert.IsType<ClaudeMessageStopEvent>(thirdEvent));
+            thirdEvent => Assert.Equal(new ClaudeMessageDeltaEvent("end_turn"), thirdEvent),
+            fourthEvent => Assert.IsType<ClaudeMessageStopEvent>(fourthEvent));
     }
 
     [Theory]
