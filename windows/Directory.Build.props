@@ -1,0 +1,10 @@
+<Project>
+  <!-- Shared build settings for every project under windows/. -->
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+
+</Project>

@@ -1,0 +1,388 @@
+<Window x:Class="Clicky.Windows.Panel.CompanionPanelWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Clicky"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        ShowInTaskbar="False"
+        Topmost="True"
+        ShowActivated="False"
+        ResizeMode="NoResize"
+        SizeToContent="Height"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True"
+        Focusable="False"
+        FontFamily="{DynamicResource PanelTextFontFamily}">
+
+    <!--
+        The Windows counterpart of CompanionPanelView.swift. Only WPF types appear here: every
+        color, font and weight comes from ClickyDesignTokens through DynamicResource keys that the
+        code-behind registers, and all state-driven text and visibility is set in the code-behind
+        (referencing this assembly's types from XAML would make WPF build a temporary project).
+    -->
+
+    <Window.Resources>
+
+        <!-- Copy with the Mac's ".medium" weight. -->
+        <Style x:Key="PanelMediumTextStyle" TargetType="TextBlock">
+            <Setter Property="FontWeight" Value="{DynamicResource PanelMediumFontWeight}" />
+        </Style>
+
+        <!-- Glyphs from Segoe Fluent Icons (or Segoe MDL2 Assets). Normal weight so WPF never synthesizes bold on the icon font. -->
+        <Style x:Key="PanelIconGlyphStyle" TargetType="TextBlock">
+            <Setter Property="FontFamily" Value="{DynamicResource PanelIconFontFamily}" />
+            <Setter Property="FontWeight" Value="Normal" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+
+        <!-- Footer text buttons (Quit, Watch Onboarding Again): tertiary text that brightens on hover. -->
+        <Style x:Key="PanelTextLinkButtonStyle" TargetType="Button">
+            <Setter Property="Foreground" Value="{DynamicResource TextTertiaryBrush}" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="FontWeight" Value="{DynamicResource PanelMediumFontWeight}" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <!-- Transparent rather than no background, so the space between glyph and label also takes hover and clicks. -->
+                        <Border Background="Transparent">
+                            <ContentPresenter VerticalAlignment="Center" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- Header close button: 20 px circle, white at 8%, tertiary glyph. Hover brightens both. -->
+        <Style x:Key="PanelCloseButtonStyle" TargetType="Button">
+            <Setter Property="Width" Value="20" />
+            <Setter Property="Height" Value="20" />
+            <Setter Property="Foreground" Value="{DynamicResource TextTertiaryBrush}" />
+            <Setter Property="Background" Value="{DynamicResource CloseButtonFillBrush}" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}" CornerRadius="10">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+                    <Setter Property="Background" Value="{DynamicResource CloseButtonHoverFillBrush}" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- Small capsule accent button (Grant). Fixed 22 px height so the 11 px corner radius is exactly half of it. -->
+        <Style x:Key="PanelAccentPillButtonStyle" TargetType="Button">
+            <Setter Property="Height" Value="22" />
+            <Setter Property="Padding" Value="10,0" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{DynamicResource TextOnAccentBrush}" />
+            <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}" CornerRadius="11" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource AccentHoverBrush}" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- Full-width accent button (Start): radius 10 (DS.CornerRadius.large), 10 px vertical padding. -->
+        <Style x:Key="PanelAccentFullWidthButtonStyle" TargetType="Button">
+            <Setter Property="Padding" Value="0,10" />
+            <Setter Property="FontSize" Value="14" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{DynamicResource TextOnAccentBrush}" />
+            <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}" CornerRadius="10" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource AccentHoverBrush}" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!--
+            One segment of the model picker. A ToggleButton so the template can style the selected
+            segment through IsChecked; the code-behind keeps IsChecked in step with the panel state.
+            The IsChecked trigger comes after the hover trigger so the selected segment keeps its look on hover.
+        -->
+        <Style x:Key="PanelModelOptionToggleButtonStyle" TargetType="ToggleButton">
+            <Setter Property="Padding" Value="10,5" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="FontWeight" Value="{DynamicResource PanelMediumFontWeight}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextTertiaryBrush}" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border Background="{TemplateBinding Background}" CornerRadius="5" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
+                </Trigger>
+                <Trigger Property="IsChecked" Value="True">
+                    <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+                    <Setter Property="Background" Value="{DynamicResource SelectedSegmentFillBrush}" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+    </Window.Resources>
+
+    <!-- Width and Margin (room for the drop shadow inside the transparent window) are set in the code-behind. -->
+    <Grid x:Name="PanelShadowHost">
+
+        <!--
+            The shadow is cast by a separate border behind the card. Putting the effect on the card
+            itself would render all of the card's text through the effect pipeline, which softens it.
+        -->
+        <Border x:Name="PanelShadowCaster"
+                CornerRadius="12"
+                Background="{DynamicResource BackgroundBrush}">
+            <Border.Effect>
+                <DropShadowEffect Color="Black" Opacity="0.5" BlurRadius="20" ShadowDepth="10" Direction="270" />
+            </Border.Effect>
+        </Border>
+
+        <Border x:Name="PanelCard"
+                CornerRadius="12"
+                Background="{DynamicResource BackgroundBrush}">
+            <StackPanel>
+
+                <!-- Header: status dot, "Clicky", status text, close button. -->
+                <Grid Margin="16,14">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <Ellipse x:Name="StatusDot"
+                             Grid.Column="0"
+                             Width="8"
+                             Height="8"
+                             VerticalAlignment="Center" />
+
+                    <TextBlock Grid.Column="1"
+                               Margin="8,0,0,0"
+                               VerticalAlignment="Center"
+                               FontSize="14"
+                               FontWeight="SemiBold"
+                               Foreground="{DynamicResource TextPrimaryBrush}"
+                               Text="Clicky" />
+
+                    <TextBlock x:Name="StatusTextBlock"
+                               Grid.Column="3"
+                               VerticalAlignment="Center"
+                               FontSize="12"
+                               Style="{StaticResource PanelMediumTextStyle}"
+                               Foreground="{DynamicResource TextTertiaryBrush}" />
+
+                    <Button x:Name="CloseButton"
+                            Grid.Column="4"
+                            Margin="8,0,0,0"
+                            VerticalAlignment="Center"
+                            Style="{StaticResource PanelCloseButtonStyle}"
+                            Click="HandleCloseButtonClick">
+                        <TextBlock Style="{StaticResource PanelIconGlyphStyle}" FontSize="10" Text="&#xE711;" />
+                    </Button>
+                </Grid>
+
+                <Border Height="1" Margin="16,0" Background="{DynamicResource BorderSubtleBrush}" />
+
+                <!-- Copy that explains the current setup step. Title weight and both texts are set in the code-behind. -->
+                <StackPanel x:Name="CopySection" Margin="16,16,16,0">
+                    <TextBlock x:Name="CopyTitleTextBlock"
+                               FontSize="12"
+                               TextWrapping="Wrap"
+                               Foreground="{DynamicResource TextSecondaryBrush}" />
+                    <TextBlock x:Name="CopyBodyTextBlock"
+                               Margin="0,6,0,0"
+                               FontSize="11"
+                               TextWrapping="Wrap"
+                               Foreground="{DynamicResource TextTertiaryBrush}" />
+                </StackPanel>
+
+                <!-- Model picker row. The segment buttons are created in the code-behind from ClaudeModelIdentifiers.PickerOptions. -->
+                <Grid x:Name="ModelPickerRow" Margin="16,12,16,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <TextBlock Grid.Column="0"
+                               VerticalAlignment="Center"
+                               FontSize="13"
+                               Style="{StaticResource PanelMediumTextStyle}"
+                               Foreground="{DynamicResource TextSecondaryBrush}"
+                               Text="Model" />
+
+                    <Border Grid.Column="1"
+                            VerticalAlignment="Center"
+                            CornerRadius="6"
+                            BorderThickness="0.5"
+                            BorderBrush="{DynamicResource BorderSubtleBrush}"
+                            Background="{DynamicResource SegmentedControlFillBrush}">
+                        <StackPanel x:Name="ModelOptionButtonsPanel" Orientation="Horizontal" />
+                    </Border>
+                </Grid>
+
+                <!-- Permissions section: shown until the microphone is available. -->
+                <StackPanel x:Name="PermissionsSection" Margin="16,16,16,0">
+                    <TextBlock Margin="0,0,0,8"
+                               FontSize="10"
+                               FontWeight="SemiBold"
+                               Foreground="{DynamicResource TextTertiaryBrush}"
+                               Text="PERMISSIONS" />
+
+                    <Grid Margin="0,6">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="16" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+
+                        <TextBlock x:Name="MicrophoneGlyphTextBlock"
+                                   Grid.Column="0"
+                                   HorizontalAlignment="Center"
+                                   FontSize="12"
+                                   Style="{StaticResource PanelIconGlyphStyle}"
+                                   Text="&#xE720;" />
+
+                        <StackPanel Grid.Column="1" Margin="8,0,8,0" VerticalAlignment="Center">
+                            <TextBlock FontSize="13"
+                                       Style="{StaticResource PanelMediumTextStyle}"
+                                       Foreground="{DynamicResource TextSecondaryBrush}"
+                                       Text="Microphone" />
+                            <TextBlock x:Name="MicrophonePrivacySettingsCaption"
+                                       Margin="0,1,0,0"
+                                       FontSize="10"
+                                       TextWrapping="Wrap"
+                                       Foreground="{DynamicResource TextTertiaryBrush}"
+                                       Text="Turn on in Windows Settings, Privacy and security, Microphone" />
+                        </StackPanel>
+
+                        <StackPanel x:Name="MicrophoneGrantedIndicator"
+                                    Grid.Column="2"
+                                    Orientation="Horizontal"
+                                    VerticalAlignment="Center">
+                            <Ellipse Width="6"
+                                     Height="6"
+                                     VerticalAlignment="Center"
+                                     Fill="{DynamicResource SuccessBrush}" />
+                            <TextBlock Margin="4,0,0,0"
+                                       VerticalAlignment="Center"
+                                       FontSize="11"
+                                       Style="{StaticResource PanelMediumTextStyle}"
+                                       Foreground="{DynamicResource SuccessBrush}"
+                                       Text="Granted" />
+                        </StackPanel>
+
+                        <Button x:Name="MicrophoneGrantButton"
+                                Grid.Column="2"
+                                Content="Grant"
+                                Style="{StaticResource PanelAccentPillButtonStyle}"
+                                Click="HandleMicrophoneGrantButtonClick" />
+
+                        <TextBlock x:Name="NoMicrophoneFoundTextBlock"
+                                   Grid.Column="2"
+                                   VerticalAlignment="Center"
+                                   FontSize="11"
+                                   Style="{StaticResource PanelMediumTextStyle}"
+                                   Foreground="{DynamicResource TextTertiaryBrush}"
+                                   Text="No microphone found" />
+                    </Grid>
+                </StackPanel>
+
+                <Button x:Name="StartButton"
+                        Margin="16,16,16,0"
+                        Content="Start"
+                        Style="{StaticResource PanelAccentFullWidthButtonStyle}"
+                        Click="HandleStartButtonClick" />
+
+                <Border Height="1" Margin="16,12,16,0" Background="{DynamicResource BorderSubtleBrush}" />
+
+                <!-- Footer: Quit on the left, Watch Onboarding Again on the right once onboarding is done. -->
+                <Grid Margin="16,12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <Button x:Name="QuitButton"
+                            Grid.Column="0"
+                            Style="{StaticResource PanelTextLinkButtonStyle}"
+                            Click="HandleQuitButtonClick">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Style="{StaticResource PanelIconGlyphStyle}" FontSize="11" Text="&#xE7E8;" />
+                            <TextBlock Margin="6,0,0,0" VerticalAlignment="Center" Text="Quit Clicky" />
+                        </StackPanel>
+                    </Button>
+
+                    <Button x:Name="ReplayOnboardingButton"
+                            Grid.Column="2"
+                            Style="{StaticResource PanelTextLinkButtonStyle}"
+                            Click="HandleReplayOnboardingButtonClick">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Style="{StaticResource PanelIconGlyphStyle}" FontSize="11" Text="&#xE768;" />
+                            <TextBlock Margin="6,0,0,0" VerticalAlignment="Center" Text="Watch Onboarding Again" />
+                        </StackPanel>
+                    </Button>
+                </Grid>
+
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>

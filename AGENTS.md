@@ -9,6 +9,8 @@ macOS menu bar companion app. Lives entirely in the macOS status bar (no dock ic
 
 All API keys live on a Cloudflare Worker proxy — nothing sensitive ships in the app.
 
+A native Windows port (C#, .NET 9, WPF, notification-area app) lives in `windows/` and talks to the same Worker. See [Windows Port](#windows-port) below and `windows/README.md`.
+
 ## Architecture
 
 - **App Type**: Menu bar-only (`LSUIElement=true`), no dock icon or main window
@@ -76,6 +78,61 @@ Worker vars: `ELEVENLABS_VOICE_ID`
 | `AppBundleConfiguration.swift` | ~28 | Runtime configuration reader for keys stored in the app bundle Info.plist. |
 | `worker/src/index.ts` | ~142 | Cloudflare Worker proxy. Three routes: `/chat` (Claude), `/tts` (ElevenLabs), `/transcribe-token` (AssemblyAI temp token). |
 
+### Windows port key files (`windows/`)
+
+Paths are relative to `windows/src/` unless they start with `windows/`.
+
+| File | Lines | Purpose |
+|------|-------|---------|
+| `windows/Clicky.Windows.sln` | ~69 | Solution: Clicky.Core, Clicky.Windows, Clicky.Core.Tests. |
+| `windows/Directory.Build.props` | ~10 | Shared C# settings (latest language version, nullable, implicit usings). |
+| `windows/appsettings.json` | ~3 | `WorkerUrl` fallback (default `http://localhost:8787`), copied next to the exe. |
+| `Clicky.Core/Configuration/ClickyWorkerConfiguration.cs` | ~141 | Worker URL resolution: `CLICKY_WORKER_URL`, then `appsettings.json`, then `http://localhost:8787`. Route URLs for `/chat`, `/tts`, `/transcribe-token`. |
+| `Clicky.Core/Claude/ClaudeModelIdentifiers.cs` | ~44 | The only place model ids live: `claude-sonnet-5-5` (default) and `claude-opus-5-5`. |
+| `Clicky.Core/Claude/ClaudeServerSentEventParser.cs` | ~220 | Byte-level incremental SSE parser for Anthropic streams (split chunks, split UTF-8, CRLF, error events). |
+| `Clicky.Core/Claude/ClaudeStreamingChatClient.cs` | ~327 | Port of `ClaudeAPI.swift`: builds the Messages body (16000 max tokens and effort low, because the 5.5 models always think), POSTs to `{worker}/chat`, streams text deltas and the stop reason. |
+| `Clicky.Core/Prompts/CompanionSystemPrompts.cs` | ~73 | Both system prompts, verbatim from `CompanionManager.swift` (a test compares them with the Swift source). |
+| `Clicky.Core/Pointing/PointTagParser.cs` | ~91 | `[POINT:x,y:label:screenN]` and `[POINT:none]` parser with the Swift regex. |
+| `Clicky.Core/Pointing/ScreenCoordinateMapper.cs` | ~145 | Screenshot pixels to physical pixels to overlay DIPs; 1280 px screenshot sizing. |
+| `Clicky.Core/Pointing/PointTargetResolver.cs` | ~56 | Picks the target screen (`:screenN` or cursor screen) and maps Claude's coordinate. |
+| `Clicky.Core/Screen/CapturedScreen.cs`, `ScreenCaptureLabeling.cs` | ~84 | Captured screen record; cursor-first ordering and the Mac's screen label text. |
+| `Clicky.Core/Conversation/ConversationHistory.cs` | ~75 | Last ten user/assistant exchanges, POINT tag removed. |
+| `Clicky.Core/PushToTalk/PushToTalkShortcut.cs` | ~137 | Shortcut options (Ctrl + Alt default), virtual-key codes, settings values. |
+| `Clicky.Core/PushToTalk/PushToTalkShortcutStateMachine.cs` | ~217 | Press/release rules from `BuddyPushToTalkShortcut`, auto-repeat dedupe, stuck-key reconciliation, AltGr note. |
+| `Clicky.Core/Transcription/AssemblyAIStreamingConfiguration.cs` | ~114 | v3 websocket URL (never logged, it carries the token), 100 ms frames, keyterms. |
+| `Clicky.Core/Transcription/AssemblyAIStreamingTranscriptionSession.cs` | ~491 | One v3 websocket session: Begin, Turn, ForceEndpoint with a 1.4 s grace period, partial-transcript fallback. |
+| `Clicky.Core/Transcription/AssemblyAIStreamingTranscriptionProvider.cs` | ~76 | Fetches a token per session and shares one `SocketsHttpHandler` across websockets (the Swift shared URLSession). |
+| `Clicky.Core/Transcription/AssemblyAITemporaryTokenClient.cs`, `AssemblyAITurnTranscriptAccumulator.cs` | ~168 | Token fetch from `{worker}/transcribe-token`; turn-ordered transcript bookkeeping. |
+| `Clicky.Core/TextToSpeech/ElevenLabsSpeechClient.cs` | ~84 | POSTs to `{worker}/tts` with `eleven_flash_v2_5`, returns MP3 bytes. |
+| `Clicky.Core/Audio/AudioPowerLevelMeter.cs`, `Pcm16AudioFrameChunker.cs` | ~128 | Waveform level math from the Mac; regroups PCM16 into websocket frames. |
+| `Clicky.Core/Companion/CompanionVoiceState.cs` | ~80 | Idle/listening/processing/responding and the panel status words. |
+| `Clicky.Core/Overlay/CursorOverlayAnimationMath.cs` | ~274 | Bezier flight, follow spring, waveform bar heights, pointing phrases, onboarding prompt text. |
+| `Clicky.Core/Settings/ClickyUserSettings.cs` | ~117 | `%LOCALAPPDATA%\Clicky\settings.json` load and atomic save. |
+| `Clicky.Core/Diagnostics/ClickyDiagnosticLog.cs` | ~32 | Logging hook Core uses without a logging dependency. |
+| `Clicky.Windows/App.xaml`, `App.xaml.cs`, `app.manifest` | ~90 | No main window, PerMonitorV2 DPI awareness, unhandled-exception logging. |
+| `Clicky.Windows/Orchestration/CompanionManager.cs` | ~895 | Port of `CompanionManager.swift`: push-to-talk, response pipeline, pointing, transient cursor, onboarding demo, panel actions. |
+| `Clicky.Windows/Orchestration/BuddyDictationManager.cs` | ~434 | Keyboard push-to-talk dictation: microphone plus one AssemblyAI session per press, finalize on key-up. |
+| `Clicky.Windows/Orchestration/ClickyApplicationServices.cs`, `ClickyApplicationStartup.cs` | ~225 | Composition root and startup (tray mode or a debug mode). |
+| `Clicky.Windows/Orchestration/WindowsPortTodoConstants.cs` | ~47 | Values the port could not determine (fallback line, video, music, feedback link, analytics). |
+| `Clicky.Windows/Companion/CompanionOverlayState.cs`, `CompanionPanelState.cs` | ~298 | Observable state the overlays and the panel render; the panel's copy and visibility rules. |
+| `Clicky.Windows/Hotkey/LowLevelKeyboardHookService.cs`, `KeyboardHookNativeMethods.cs` | ~619 | `WH_KEYBOARD_LL` on a dedicated thread, listen-only, 250 ms stuck-key check. |
+| `Clicky.Windows/AudioIO/MicrophoneCaptureService.cs`, `CapturedAudioFormatConverter.cs` | ~819 | NAudio WASAPI shared-mode capture, any mix format to 16 kHz mono PCM16, level events. |
+| `Clicky.Windows/AudioIO/MicrophoneAccessStatusReader.cs`, `MicrophoneUnavailableException.cs` | ~141 | Best-effort microphone privacy status; opens `ms-settings:privacy-microphone`. |
+| `Clicky.Windows/AudioIO/SpeechPlaybackService.cs` | ~409 | MP3 playback with NAudio and the Windows system voice for the error fallback. |
+| `Clicky.Windows/Capture/ScreenCaptureService.cs` | ~322 | Every monitor, cursor screen first, 1280 px JPEG, backend selection and fallback. |
+| `Clicky.Windows/Capture/WindowsGraphicsCaptureMonitorScreenshotCapturer.cs` | ~436 | Windows.Graphics.Capture per HMONITOR (D3D11 device, borderless, one frame). |
+| `Clicky.Windows/Capture/GdiMonitorScreenshotCapturer.cs`, `ScreenshotJpegEncoder.cs`, `CaptureNativeMethods.cs`, `CapturedMonitorPixels.cs`, `ScreenCaptureBackendPreference.cs` | ~480 | GDI BitBlt fallback, scaling and JPEG encoding, interop declarations. |
+| `Clicky.Windows/CursorOverlay/OverlayWindowManager.cs`, `OverlayWindow.cs` | ~726 | One topmost, transparent, click-through, non-activating window per monitor, excluded from capture with `WDA_EXCLUDEFROMCAPTURE`. |
+| `Clicky.Windows/CursorOverlay/BlueCursorOverlayView.cs` | ~835 | Port of `BlueCursorView`: following, waveform, spinner, flight, pointing, welcome, bubbles. |
+| `Clicky.Windows/CursorOverlay/BlueCursorShapeVisuals.cs`, `OverlayBubbleVisuals.cs`, `OverlayAnimationPrimitives.cs`, `OverlayElementUpdater.cs`, `OverlayVisualStyle.cs`, `OverlayNativeMethods.cs` | ~1143 | Triangle, waveform, spinner and bubble visuals, tweens, and overlay interop. |
+| `Clicky.Windows/Tray/TrayIconManager.cs` | ~198 | Notification-area icon (blue triangle drawn at runtime); click opens the panel. |
+| `Clicky.Windows/Panel/CompanionPanelWindow.xaml`, `.xaml.cs` | ~916 | Dark floating panel mirroring `CompanionPanelView.swift`, non-activating. |
+| `Clicky.Windows/Panel/PanelOutsideClickWatcher.cs`, `CompanionPanelPlacementCalculator.cs`, `ClickyDesignTokens.cs`, `PanelNativeMethods.cs` | ~638 | Outside-click dismissal (`WH_MOUSE_LL`), placement by taskbar edge, `DesignSystem.swift` colors. |
+| `Clicky.Windows/Display/DisplayMonitorInfo.cs` | ~155 | Monitor enumeration with physical bounds, work area and DPI; cursor position. |
+| `Clicky.Windows/Diagnostics/ClickyApplicationLog.cs` | ~157 | `%LOCALAPPDATA%\Clicky\logs\clicky.log` plus the launching terminal (inherited handle or attached console) for debug modes. |
+| `Clicky.Windows/Debugging/*.cs` | ~569 | `--capture-test`, `--overlay-test`, `--token-test`, `--ask` and their flags. |
+| `windows/tests/Clicky.Core.Tests/*.cs` | ~1500 | xUnit tests for every Core component, including a verbatim prompt check against the Swift source. |
+
 ## Build & Run
 
 ```bash
@@ -108,6 +165,34 @@ npx wrangler deploy
 npx wrangler dev
 ```
 
+## Windows Port
+
+`windows/` holds a native Windows port of the same companion (phase 1: open-source parity). It uses the same Worker routes and the same two system prompts, and it never calls any other backend.
+
+- **App type**: WPF on .NET 9 (`net9.0-windows10.0.22621.0`), notification-area icon only, no main window and no taskbar button. WinForms is enabled only for `NotifyIcon`.
+- **Split**: `src/Clicky.Core` (net9.0, no UI) holds everything that decides behavior and is unit tested in `tests/Clicky.Core.Tests`. `src/Clicky.Windows` holds the Win32, WinRT and WPF pieces.
+- **Push-to-talk**: `WH_KEYBOARD_LL` hook on a dedicated thread, listen-only like the Mac event tap. Default Ctrl + Alt (which equals AltGr on some layouts); configurable in `%LOCALAPPDATA%\Clicky\settings.json`.
+- **Speech to text**: NAudio WASAPI capture resampled to 16 kHz mono PCM16, streamed to AssemblyAI v3 with a token from `/transcribe-token`, finalized on key-up.
+- **Screens**: Windows.Graphics.Capture per monitor with a GDI `BitBlt` fallback, cursor screen first, 1280 px JPEG, labeled exactly like the Mac.
+- **Overlay**: one topmost, transparent, click-through, non-activating window per monitor, excluded from screenshots with `SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)`.
+- **Coordinates**: the process is per-monitor DPI aware v2. Everything is physical pixels until the overlay converts to DIPs.
+- **Worker URL**: `CLICKY_WORKER_URL`, then `WorkerUrl` in `windows/appsettings.json`, then `http://localhost:8787`. There is no hardcoded deployed URL.
+
+```bash
+# Build and test
+dotnet build windows/Clicky.Windows.sln -c Release
+dotnet test windows/Clicky.Windows.sln
+
+# Run (start the Worker first with npx wrangler dev)
+windows/src/Clicky.Windows/bin/Release/net9.0-windows10.0.22621.0/Clicky.Windows.exe
+
+# Debug modes print to the terminal and exit
+Clicky.Windows.exe --capture-test      # JPEGs and report in %TEMP%\clicky-capture-test
+Clicky.Windows.exe --overlay-test      # every overlay state, click-through and focus checks
+Clicky.Windows.exe --token-test        # token length only
+Clicky.Windows.exe --ask "what is on my screen"
+```
+
 ## Code Style & Conventions
 
 ### Variable and Method Naming
@@ -136,6 +221,19 @@ IMPORTANT: Follow these naming rules strictly. Clarity is the top priority.
 - AppKit `NSPanel`/`NSWindow` bridged into SwiftUI via `NSHostingView`
 - All buttons must show a pointer cursor on hover
 - For any interactive element, explicitly think through its hover behavior (cursor, visual feedback, and whether hover should communicate clickability)
+
+### C# / Windows Conventions (`windows/`)
+
+- The naming and clarity rules above apply unchanged, including no single-letter names for loop variables and lambda parameters.
+- Logic that decides behavior goes in `Clicky.Core` with a unit test. `Clicky.Windows` only adapts it to Win32, WinRT and WPF.
+- UI state changes happen on the WPF dispatcher. Hook, audio and websocket callbacks marshal with `BeginInvoke`, never `Invoke`.
+- Native callbacks (hooks, enumeration callbacks) keep their delegate in a field and always call `CallNextHookEx` for hooks.
+- Coordinates are physical pixels everywhere; convert to DIPs only inside the overlay windows.
+- Model ids live only in `ClaudeModelIdentifiers.cs`. The prompts in `CompanionSystemPrompts.cs` must stay verbatim with the Swift source (a test enforces this).
+- Source files under `windows/` stay ASCII. Characters the Mac strings need, such as the em dash in the prompts and screen labels, are built from their code point at runtime.
+- Never log API keys, the AssemblyAI token, or the websocket URL that carries it. Log lengths instead.
+- `System.IO` is not an implicit using in the WPF project, and WinForms implicit usings are removed to avoid type-name collisions; import explicitly.
+- The only third-party package in the app is NAudio. Add another only with a one-line reason in the PR.
 
 ### Do NOT
 
