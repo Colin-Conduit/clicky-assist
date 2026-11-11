@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- UI-free logic shared by the Windows app: config, Claude streaming, POINT tags,
+       coordinate mapping, conversation history, push-to-talk state machine,
+       AssemblyAI streaming session, and worker HTTP clients. No WPF or Win32 here
+       so everything stays unit-testable. -->
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <RootNamespace>Clicky.Core</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Clicky.Core.Tests" />
+  </ItemGroup>
+
+</Project>

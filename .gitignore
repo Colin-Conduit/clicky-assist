@@ -6,3 +6,7 @@ build/
 releases/
 .claude/
 coding-plans/
+
+# Windows port build output
+windows/**/bin/
+windows/**/obj/
